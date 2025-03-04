@@ -1,0 +1,68 @@
+# File .gitignore per progetto di memory analysis
+
+# Ambiente virtuale Python
+venv/
+.env/
+.venv/
+
+# File di configurazione locale
+.env
+*.local
+config.json
+
+# File generati da YARA
+analysis/yara/rules/compiled_rules.yarc
+analysis/yara/rules/combined_rules.yar
+
+# File di log e report generati
+*.log
+logs/
+reports/
+output/
+*.json
+
+# File di sistema operativo
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# File Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.so
+*.pyd
+
+# File di IDE/Editor
+.vscode/
+.idea/
+*.iml
+*.sublime-workspace
+
+# File temporanei e dump
+*.tmp
+*.dump
+*.mem
+*.raw
+
+# File di test e coverage
+.coverage
+htmlcov/
+.pytest_cache/
+test_results/
+
+# File di Jupyter Notebook
+.ipynb_checkpoints/
+
+# File di Volatility3 (se incluso come submodulo)
+tools/volatility3/.tox/
+tools/volatility3/.coverage
+tools/volatility3/*.egg-info/
+
+# Eccezioni importanti (mantieni questi)
+!requirements.txt
+!setup.sh
+!README.md
