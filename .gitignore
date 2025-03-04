@@ -6,8 +6,10 @@ venv/
 *.local
 config.json
 
-analysis/yara/rules/compiled_rules.yarc
-analysis/yara/rules/combined_rules.yar
+tools/yara/rules/compiled_rules.yarc
+tools/yara/rules/combined_rules.yar
+tools/volatility3/
+
 
 *.log
 logs/
