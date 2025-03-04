@@ -8,7 +8,6 @@ config.json
 
 tools/yara/rules/compiled_rules.yarc
 tools/yara/rules/combined_rules.yar
-tools/volatility3/
 
 
 *.log
@@ -47,9 +46,7 @@ test_results/
 
 .ipynb_checkpoints/
 
-tools/volatility3/.tox/
-tools/volatility3/.coverage
-tools/volatility3/*.egg-info/
+tools/volatility3/
 
 !requirements.txt
 !setup.sh
