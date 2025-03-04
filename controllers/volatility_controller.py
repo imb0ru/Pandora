@@ -1,80 +1,115 @@
-import subprocess
-import os
+"""
+volatility_feature_extractor.py
+Automatic feature extraction from memory dumps using Volatility 3
+"""
+
 import json
-from loguru import logger as l
+import logging
+import os
+import subprocess
+import tempfile
+from typing import Dict, Any, List
 
-TEMP_FILE_NAME = "tmp/volatility-output.json"
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
-# Lista ESTESA di plugin di Volatility 3 (il massimo possibile)
-VOLATILITY_PLUGINS = {
-    "windows.pslist": "List active processes",
-    "windows.pstree": "Show process tree",
-    "windows.netscan": "Scan open network connections",
-    "windows.cmdline": "Show command lines of processes",
-    "windows.dlllist": "List loaded DLLs",
-    "windows.driverscan": "Scan for loaded drivers",
-    "windows.handles": "List open handles",
-    "windows.getsids": "Show security identifiers (SIDs)",
-    "windows.svcscan": "Scan Windows services",
-    "windows.registry.hivelist": "List loaded registry hives",
-    "windows.registry.printkey": "Print a registry key",
-    "windows.registry.userassist": "Show UserAssist entries",
-    "windows.registry.shimcache": "Analyze application compatibility cache",
-    "windows.registry.amcache": "Analyze Amcache registry entries",
-    "windows.malfind": "Detect malicious memory regions",
-    "windows.memmap": "Show memory mapping",
-    "windows.modscan": "Scan for loaded kernel modules",
-    "windows.mutantscan": "Scan for mutexes",
-    "windows.ssdt": "Show System Service Descriptor Table (SSDT)",
-    "windows.callbacks": "Show kernel callbacks",
-    "windows.apihooks": "Detect API hooks",
-    "windows.syscalls": "Analyze system calls",
-    "windows.privileges": "Show process privileges",
-    "windows.threads": "List active threads",
-    "windows.modules": "List loaded kernel modules",
-    "windows.ldrmodules": "Detect unlinked DLLs",
-    "windows.bigpools": "Show large memory pools",
-    "windows.mbrscan": "Scan Master Boot Record (MBR) for anomalies",
-    "windows.vadinfo": "Show Virtual Address Descriptor (VAD) information",
-    "windows.mapped_files": "List memory-mapped files",
-    "windows.poolscanner": "Scan for memory pool allocations",
-    "windows.atomscan": "Scan for atom table entries",
-    "windows.devicetree": "List device drivers",
-    "windows.mftscan": "Scan Master File Table (MFT) records",
-    "windows.driverirp": "Show IRP handlers for drivers",
-    "windows.pte": "Show Page Table Entries (PTE)",
-    "windows.registry.shellbags": "Analyze ShellBags registry entries",
-    "windows.hashdump": "Dump NTLM hashes",
-    "windows.dumpfiles": "Extract files from memory",
-    "windows.eventlog": "Analyze Windows event logs",
-    "windows.pcapdump": "Dump network traffic to a PCAP file",
-    "windows.filescan": "Scan for files in memory",
-}
-
-class VolatilityController:
-    def __init__(self):
-        self.temp_file = TEMP_FILE_NAME
-
-    def run_plugin(self, dump_path, plugin):
-        if plugin not in VOLATILITY_PLUGINS:
-            l.error(f"Plugin {plugin} not supported.")
-            return None
+class VolatilityFeatureExtractor:
+    def __init__(self, volatility_path: str):
+        """
+        Initialize the extractor with Volatility 3 path
         
-        command = [
-            "volatility3",
-            "-f",
-            dump_path,
-            plugin,
-            "--output",
-            "json",
-            "--output-file",
-            self.temp_file,
-        ]
+        :param volatility_path: Path to volatility3's vol.py
+        """
+        self.volatility_path = volatility_path
+        self.available_plugins = self._discover_plugins()
         
+    def _discover_plugins(self) -> List[str]:
+        """Discover all available Windows plugins"""
         try:
-            subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            with open(self.temp_file, "r") as file:
-                return json.load(file)
-        except Exception as e:
-            l.error(f"Error executing {plugin}: {e}")
-            return None
+            result = subprocess.run(
+                ['python3', self.volatility_path, '-h'],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            return [
+                line.split()[0] 
+                for line in result.stdout.split('\n') 
+                if line.strip().startswith('windows.')
+            ]
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Failed to discover plugins: {e.stderr}")
+            return []
+
+    def _execute_plugin(self, memdump_path: str, plugin: str) -> Dict:
+        """Execute a single Volatility plugin and return parsed results"""
+        with tempfile.NamedTemporaryFile(mode='w+', delete=False) as tmpfile:
+            try:
+                result = subprocess.run(
+                    ['python3', self.volatility_path, '-f', memdump_path, '-r=json', plugin],
+                    stdout=tmpfile,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    check=True,
+                    timeout=300
+                )
+                tmpfile.seek(0)
+                return json.load(tmpfile)
+            except subprocess.CalledProcessError as e:
+                logger.error(f"Plugin {plugin} failed: {e.stderr}")
+            except subprocess.TimeoutExpired:
+                logger.error(f"Plugin {plugin} timed out")
+            except json.JSONDecodeError:
+                logger.error(f"Invalid JSON output from {plugin}")
+            finally:
+                os.unlink(tmpfile.name)
+        return {}
+
+    def _flatten_data(self, data: Any, prefix: str = '') -> Dict[str, Any]:
+        """Recursively flatten nested structures"""
+        flattened = {}
+        if isinstance(data, dict):
+            for key, value in data.items():
+                new_key = f"{prefix}.{key}" if prefix else key
+                flattened.update(self._flatten_data(value, new_key))
+        elif isinstance(data, list):
+            for i, item in enumerate(data):
+                new_key = f"{prefix}[{i}]" if prefix else str(i)
+                flattened.update(self._flatten_data(item, new_key))
+        else:
+            flattened[prefix] = data
+        return flattened
+
+    def extract_features(self, memdump_path: str) -> Dict[str, Any]:
+        """
+        Extract features from a memory dump using all available plugins
+        
+        :param memdump_path: Path to memory dump file
+        :return: Dictionary of flattened features
+        """
+        features = {
+            'metadata.filename': os.path.basename(memdump_path),
+            'metadata.plugins_processed': 0
+        }
+        
+        total_plugins = len(self.available_plugins)
+        for i, plugin in enumerate(self.available_plugins, 1):
+            logger.info(f"Processing plugin {i}/{total_plugins}: {plugin}")
+            plugin_data = self._execute_plugin(memdump_path, plugin)
+            if plugin_data:
+                features.update(self._flatten_data(plugin_data, plugin))
+                features['metadata.plugins_processed'] += 1
+                
+        features['metadata.success_rate'] = \
+            features['metadata.plugins_processed'] / total_plugins if total_plugins > 0 else 0
+            
+        return features
+
+    def save_features(self, features: Dict, output_path: str):
+        """Save features to JSON file"""
+        with open(output_path, 'w') as f:
+            json.dump(features, f, indent=2)
+        logger.info(f"Features saved to {output_path}")

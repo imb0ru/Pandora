@@ -1,0 +1,69 @@
+import os
+import json
+from typing import Dict, Any
+from tools.yara.scanner import YaraScanner
+from controllers.volatility_controller import VolatilityFeatureExtractor
+from loguru import logger as l
+
+class MemoryAnalyzer:
+    def __init__(self, volatility_path: str):
+        """Initialize memory analysis components"""
+        # Initialize YARA scanner with default rules
+        self.yara_scanner = YaraScanner()
+        
+        # Initialize Volatility feature extractor
+        self.feature_extractor = VolatilityFeatureExtractor(volatility_path)
+        
+        # Configure paths
+        self.base_dir = os.path.abspath(os.path.dirname(__file__))
+
+    def analyze(self, memdump_path: str) -> Dict[str, Any]:
+        """Complete analysis workflow"""
+        if not os.path.isfile(memdump_path):
+            l.error(f"Memory dump not found: {memdump_path}")
+            raise FileNotFoundError(f"Invalid file: {memdump_path}")
+
+        report = {
+            'filename': os.path.basename(memdump_path),
+            'analysis': {
+                'yara': {'matches': None, 'error': None},
+                'volatility': {'features': None, 'error': None},
+                'threat_detected': False
+            }
+        }
+
+        # Execute YARA scan
+        try:
+            yara_results = self.yara_scanner.scan(memdump_path)
+            report['analysis']['yara']['matches'] = yara_results
+            report['analysis']['threat_detected'] = len(yara_results) > 0
+        except Exception as e:
+            report['analysis']['yara']['error'] = str(e)
+            l.error(f"YARA analysis failed: {str(e)}")
+
+        # Extract Volatility features
+        try:
+            volatility_features = self.feature_extractor.extract_features(memdump_path)
+            report['analysis']['volatility']['features'] = volatility_features
+        except Exception as e:
+            report['analysis']['volatility']['error'] = str(e)
+            l.error(f"Volatility analysis failed: {str(e)}")
+
+        return report
+
+    def save_report(self, report: Dict, output_path: str = None) -> str:
+        """Save analysis report to JSON file"""
+        if not output_path:
+            output_path = os.path.join(
+                self.base_dir,
+                'reports',
+                f"{report['filename']}_analysis.json"
+            )
+            
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        
+        with open(output_path, 'w') as f:
+            json.dump(report, f, indent=2)
+            
+        l.info(f"Report saved to: {output_path}")
+        return output_path
