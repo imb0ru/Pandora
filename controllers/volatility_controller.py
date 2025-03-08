@@ -2,6 +2,8 @@ import json
 import logging
 import os
 from typing import Dict, Any, List, Type
+import importlib
+import importlib.resources
 from volatility3.framework import contexts, exceptions, interfaces
 from volatility3 import plugins  # Correct import
 
@@ -13,28 +15,63 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 class VolatilityFeatureExtractor:
-    def __init__(self):
+    def __init__(self, config_path: str = ""):
         """
         Initializes the feature extractor and discovers available plugins.
+
+        :param config_path: Path to the configuration file (if required by plugins).
         """
+        # Create the Volatility context
         self.context = contexts.Context()
-        self.available_plugins = self._discover_plugins()  # List of plugin classes
+        
+        # Set the config_path attribute
+        self.config_path = config_path
+        
+        # Configure automagic to use the provided memory dump path
+        self.context.config['automagic.LayerStacker.single_location'] = "file://" + config_path
+        
+        # Discover plugins
+        self.available_plugins = self._discover_plugins()
 
     def _discover_plugins(self) -> List[Type[interfaces.plugins.PluginInterface]]:
         """
-        Uses Volatility3's built-in list_plugins function to retrieve available plugins.
-        
-        :return: A list of plugin classes.
+        Discovers available plugins in the Volatility framework, including Windows plugins.
         """
+        plugin_classes = []
         try:
-            # list_plugins() returns a dictionary {plugin_name: plugin_class}
-            plugin_dict = plugins.list_plugins()
-            plugin_classes = list(plugin_dict.values())
-            logger.info(f"Total plugins found: {len(plugin_classes)}")
-            return plugin_classes
+            # Explicitly import the windows subpackage to trigger plugin registration
+            import volatility3.plugins.windows
+            logger.info("Windows plugins imported successfully.")
+        except Exception as e:
+            logger.error(f"Error importing Windows plugins: {e}")
+
+        try:
+            # Get a directory-like object for the volatility3.plugins package
+            plugin_dir = importlib.resources.files(plugins)
+            # Recursively search for all .py files
+            for file in plugin_dir.rglob("*.py"):
+                if file.name == "__init__.py":
+                    continue  # Skip __init__.py files
+                # Derive the module name relative to the volatility3.plugins package
+                relative_path = file.relative_to(plugin_dir)
+                module_name = relative_path.with_suffix("")  # Remove the .py suffix
+                module_name_str = f"{plugins.__name__}." + ".".join(module_name.parts)
+                try:
+                    mod = importlib.import_module(module_name_str)
+                    # Inspect the module for plugin classes
+                    for attr_name in dir(mod):
+                        attr = getattr(mod, attr_name)
+                        if (isinstance(attr, type) and 
+                            issubclass(attr, interfaces.plugins.PluginInterface) and 
+                            attr.__name__ != "PluginInterface"):
+                            plugin_classes.append(attr)
+                            logger.info(f"Found plugin: {attr.__name__}")
+                except Exception as e:
+                    logger.error(f"Error importing module {module_name_str}: {e}")
         except Exception as e:
             logger.error(f"Error discovering plugins: {e}")
-            return []
+        logger.info(f"Total plugins found: {len(plugin_classes)}")
+        return plugin_classes
 
     def _execute_plugin(self, memdump_path: str, plugin_class: Type[interfaces.plugins.PluginInterface]) -> Dict:
         """
@@ -46,8 +83,9 @@ class VolatilityFeatureExtractor:
         """
         try:
             logger.info(f"Executing plugin: {plugin_class.__name__}")
-            plugin = plugin_class(self.context)
-            # Assumes the run method accepts the memory dump path.
+            # Instantiate the plugin with context and config_path
+            plugin = plugin_class(self.context, self.config_path)
+            # Run the plugin on the memory dump
             result = plugin.run(memdump_path)
             logger.debug(f"Plugin {plugin_class.__name__} executed successfully.")
             return self._flatten_data(result)
@@ -111,14 +149,3 @@ class VolatilityFeatureExtractor:
         with open(output_path, "w") as f:
             json.dump(features, f, indent=2)
         logger.info(f"Features saved to {output_path}")
-
-if __name__ == "__main__":
-    # Example usage
-    memdump = "memdump.mem"  # Replace with the actual memory dump path
-    output_json = "features.json"
-
-    extractor = VolatilityFeatureExtractor()
-    features = extractor.extract_features(memdump)
-    print("Analysis report:")
-    print(json.dumps(features, indent=2))
-    extractor.save_features(features, output_json)

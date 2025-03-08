@@ -43,6 +43,8 @@ test_results/
 
 .ipynb_checkpoints/
 
+dataset/
+models/
 
 !requirements.txt
 !setup.sh
