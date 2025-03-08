@@ -6,10 +6,7 @@ venv/
 *.local
 config.json
 
-tools/yara/rules/compiled_rules.yarc
-tools/yara/rules/combined_rules.yar
-
-
+tools/yara/rules/
 *.log
 logs/
 reports/
@@ -46,7 +43,6 @@ test_results/
 
 .ipynb_checkpoints/
 
-tools/volatility3/
 
 !requirements.txt
 !setup.sh

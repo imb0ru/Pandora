@@ -6,13 +6,13 @@ from controllers.volatility_controller import VolatilityFeatureExtractor
 from loguru import logger as l
 
 class MemoryAnalyzer:
-    def __init__(self, volatility_path: str):
+    def __init__(self):
         """Initialize memory analysis components"""
-        # Initialize YARA scanner with default rules
-        self.yara_scanner = YaraScanner()
+        # Initialize YARA scanner with default rules if needed
+        #self.yara_scanner = YaraScanner()
         
-        # Initialize Volatility feature extractor
-        self.feature_extractor = VolatilityFeatureExtractor(volatility_path)
+        # Initialize Volatility feature extractor (no need for volatility_path anymore)
+        self.feature_extractor = VolatilityFeatureExtractor()
         
         # Configure paths
         self.base_dir = os.path.abspath(os.path.dirname(__file__))
@@ -28,18 +28,17 @@ class MemoryAnalyzer:
             'analysis': {
                 'yara': {'matches': None, 'error': None},
                 'volatility': {'features': None, 'error': None},
-                'threat_detected': False
             }
         }
 
-        # Execute YARA scan
-        try:
-            yara_results = self.yara_scanner.scan(memdump_path)
-            report['analysis']['yara']['matches'] = yara_results
-            report['analysis']['threat_detected'] = len(yara_results) > 0
-        except Exception as e:
-            report['analysis']['yara']['error'] = str(e)
-            l.error(f"YARA analysis failed: {str(e)}")
+        # Execute YARA scan if needed
+        #try:
+        #    yara_results = self.yara_scanner.scan(memdump_path)
+        #    report['analysis']['yara']['matches'] = yara_results
+        #    report['analysis']['threat_detected'] = len(yara_results) > 0
+        #except Exception as e:
+        #    report['analysis']['yara']['error'] = str(e)
+        #    l.error(f"YARA analysis failed: {str(e)}")
 
         # Extract Volatility features
         try:
@@ -56,7 +55,7 @@ class MemoryAnalyzer:
         if not output_path:
             output_path = os.path.join(
                 self.base_dir,
-                'reports',
+                'analysis',
                 f"{report['filename']}_analysis.json"
             )
             
